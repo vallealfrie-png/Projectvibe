@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Supabase Analytics — Patient Revenue Dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Supabase client (UMD) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800">
+
+  <div class="max-w-7xl mx-auto p-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-3xl font-semibold">📈 Patient Revenue Dashboard</h1>
+        <p class="text-sm text-slate-600">Supabase powered · Tailwind UI · Chart.js</p>
+      </div>
+
+      <div class="flex gap-3 items-center">
+        <label class="text-sm text-slate-600">Filter</label>
+        <input id="searchInput" type="search" placeholder="Search patient / package" class="px-3 py-2 border rounded-lg text-sm"/>
+        <select id="categoryFilter" class="px-3 py-2 border rounded-lg text-sm">
+          <option value="">All Categories</option>
+        </select>
+        <select id="genderFilter" class="px-3 py-2 border rounded-lg text-sm">
+          <option value="">All Genders</option>
+        </select>
+        <input id="fromDate" type="date" class="px-3 py-2 border rounded-lg text-sm"/>
+        <input id="toDate" type="date" class="px-3 py-2 border rounded-lg text-sm"/>
+        <button id="applyFilter" class="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm">Apply</button>
+        <button id="clearFilter" class="px-3 py-2 border rounded-lg text-sm">Clear</button>
+      </div>
+    </div>
+
+    <!-- Summary cards -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div class="bg-white p-5 rounded-lg shadow">
+        <div class="text-sm text-slate-500">Total Revenue</div>
+        <div id="totalRevenue" class="text-2xl font-bold mt-2">—</div>
+      </div>
+
+      <div class="bg-white p-5 rounded-lg shadow">
+        <div class="text-sm text-slate-500">Total Patients</div>
+        <div id="totalPatients" class="text-2xl font-bold mt-2">—</div>
+      </div>
+
+      <div class="bg-white p-5 rounded-lg shadow">
+        <div class="text-sm text-slate-500">Male / Female</div>
+        <div id="genderCounts" class="text-2xl font-bold mt-2">—</div>
+      </div>
+
+      <div class="bg-white p-5 rounded-lg shadow">
+        <div class="text-sm text-slate-500">Top Package</div>
+        <div id="topPackage" class="text-2xl font-bold mt-2">—</div>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div class="bg-white p-5 rounded-lg shadow">
+        <h3 class="font-medium mb-3">Revenue by Package Category</h3>
+        <canvas id="categoryChart" height="220"></canvas>
+      </div>
+
+      <div class="bg-white p-5 rounded-lg shadow">
+        <h3 class="font-medium mb-3">Revenue Trend (by month)</h3>
+        <canvas id="trendChart" height="220"></canvas>
+      </div>
+
+      <div class="bg-white p-5 rounded-lg shadow">
+        <h3 class="font-medium mb-3">Patients by Gender</h3>
+        <canvas id="genderChart" height="180"></canvas>
+      </div>
+
+      <div class="bg-white p-5 rounded-lg shadow">
+        <h3 class="font-medium mb-3">Patients by Age Bracket</h3>
+        <canvas id="ageChart" height="180"></canvas>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="bg-white p-4 rounded-lg shadow">
+      <h3 class="font-medium mb-3">Transactions</h3>
+
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm" id="dataTable">
+          <thead class="text-slate-500">
+            <tr>
+              <th class="p-2 text-left">Date</th>
+              <th class="p-2 text-left">Patient</th>
+              <th class="p-2 text-left">Age Bracket</th>
+              <th class="p-2 text-left">Gender</th>
+              <th class="p-2 text-left">Package Category</th>
+              <th class="p-2 text-left">Package Name</th>
+              <th class="p-2 text-right">Amount</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody" class="divide-y"></tbody>
+        </table>
+      </div>
+
+      <div class="mt-4 flex items-center justify-between">
+        <div class="text-sm text-slate-500" id="rowsInfo">—</div>
+        <div class="flex gap-2">
+          <button id="prevPage" class="px-3 py-1 border rounded">Prev</button>
+          <button id="nextPage" class="px-3 py-1 border rounded">Next</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+<script>
+/* ============================
+   Supabase config (already filled)
+   ============================ */
+const SUPABASE_URL = "https://fljblthpqvuczsckizpx.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZsamJsdGhwcXZ1Y3pzY2tpenB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMzNjkwMjcsImV4cCI6MjA3ODk0NTAyN30.r3nKMUcf1jvItm4EgSwRPFNXyt3L2Eb4r0hdQeQqawg";
+
+/* ============================
+   Init Supabase client
+   ============================ */
+const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+/* ============================
+   State & pagination
+   ============================ */
+let rawData = [];
+let filtered = [];
+let page = 1;
+const PAGE_SIZE = 25;
+
+/* ============================
+   Helpers
+   ============================ */
+function fmtMoney(x) {
+  if (x === null || x === undefined) return "-";
+  return Number(x).toLocaleString(undefined, { style: "currency", currency: "PHP", maximumFractionDigits: 2 });
+}
+function parseDateISO(d) {
+  if (!d) return "";
+  const dt = new Date(d);
+  if (isNaN(dt)) return d;
+  return dt.toISOString().slice(0,10);
+}
+
+/* ============================
+   Fetch data from Supabase
+   ============================ */
+async function fetchAll() {
+  const { data, error } = await supabase
+    .from('patient_revenue')
+    .select('id, name_of_patient, age_bracket, gender, package_category, package_name, date, amount')
+    .order('date', { ascending: false });
+
+  if (error) {
+    console.error("Supabase error:", error);
+    alert("Error fetching data — check console.");
+    return [];
+  }
+  return (data || []).map(r => ({
+    id: r.id,
+    name_of_patient: r.name_of_patient,
+    age_bracket: r.age_bracket,
+    gender: r.gender,
+    package_category: r.package_category,
+    package_name: r.package_name,
+    date: r.date ? (typeof r.date === "string" ? r.date : r.date.toString()) : null,
+    amount: r.amount === null ? 0 : Number(r.amount)
+  }));
+}
+
+/* ============================
+   Aggregations
+   ============================ */
+function aggregateTotals(rows) {
+  const totalRevenue = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const totalPatients = rows.length;
+  const genderCounts = rows.reduce((m, r) => {
+    const g = (r.gender || 'Unknown');
+    m[g] = (m[g] || 0) + 1;
+    return m;
+  }, {});
+  const byPackage = rows.reduce((m, r) => {
+    const key = r.package_name || '(Unknown)';
+    m[key] = (m[key] || 0) + (Number(r.amount) || 0);
+    return m;
+  }, {});
+  const topPackage = Object.entries(byPackage).sort((a,b)=>b[1]-a[1])[0] || ['—',0];
+
+  return { totalRevenue, totalPatients, genderCounts, topPackage };
+}
+
+function revenueByCategory(rows) {
+  return rows.reduce((m, r) => {
+    const k = r.package_category || '(Uncategorized)';
+    m[k] = (m[k] || 0) + (Number(r.amount) || 0);
+    return m;
+  }, {});
+}
+
+function revenueTrendMonthly(rows) {
+  const m = rows.reduce((acc, r) => {
+    if (!r.date) return acc;
+    const d = new Date(r.date);
+    if (isNaN(d)) return acc;
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    acc[key] = (acc[key] || 0) + (Number(r.amount) || 0);
+    return acc;
+  }, {});
+  const keys = Object.keys(m).sort();
+  return { keys, values: keys.map(k => m[k]) };
+}
+
+function countByAgeBracket(rows) {
+  return rows.reduce((m, r) => {
+    const k = r.age_bracket || '(Unknown)';
+    m[k] = (m[k] || 0) + 1;
+    return m;
+  }, {});
+}
+
+/* ============================
+   Chart instances
+   ============================ */
+let categoryChart = null;
+let trendChart = null;
+let genderChart = null;
+let ageChart = null;
+
+function destroyCharts() {
+  [categoryChart, trendChart, genderChart, ageChart].forEach(c => { if (c) { c.destroy?.(); } });
+}
+
+/* ============================
+   Render UI
+   ============================ */
+function renderSummaries(rows) {
+  const { totalRevenue, totalPatients, genderCounts, topPackage } = aggregateTotals(rows);
+  document.getElementById('totalRevenue').innerText = fmtMoney(totalRevenue);
+  document.getElementById('totalPatients').innerText = totalPatients;
+  const genderText = Object.entries(genderCounts).map(([k,v]) => `${k}: ${v}`).join(' / ');
+  document.getElementById('genderCounts').innerText = genderText || '-';
+  document.getElementById('topPackage').innerText = `${topPackage[0]} (${fmtMoney(topPackage[1])})`;
+}
+
+function renderCharts(rows) {
+  destroyCharts();
+
+  // Category (bar)
+  const cat = revenueByCategory(rows);
+  const catLabels = Object.keys(cat);
+  const catValues = Object.values(cat);
+  const ctxCat = document.getElementById('categoryChart').getContext('2d');
+  categoryChart = new Chart(ctxCat, {
+    type: 'bar',
+    data: {
+      labels: catLabels,
+      datasets: [{ label: 'Revenue', data: catValues }]
+    },
+    options: { responsive: true, plugins: { legend: { display: false } } }
+  });
+
+  // Trend (line)
+  const trend = revenueTrendMonthly(rows);
+  const ctxTrend = document.getElementById('trendChart').getContext('2d');
+  trendChart = new Chart(ctxTrend, {
+    type: 'line',
+    data: {
+      labels: trend.keys,
+      datasets: [{ label: 'Revenue', data: trend.values, fill: true, tension: 0.25 }]
+    },
+    options: { responsive: true, plugins: { legend: { display: false } } }
+  });
+
+  // Gender (pie)
+  const gObj = rows.reduce((m, r) => { m[r.gender||'Unknown'] = (m[r.gender||'Unknown']||0) + 1; return m; }, {});
+  const gLabels = Object.keys(gObj);
+  const gValues = Object.values(gObj);
+  const ctxG = document.getElementById('genderChart').getContext('2d');
+  genderChart = new Chart(ctxG, {
+    type: 'pie',
+    data: { labels: gLabels, datasets: [{ data: gValues }] },
+    options: { responsive: true }
+  });
+
+  // Age bracket (bar)
+  const ageObj = countByAgeBracket(rows);
+  const ageLabels = Object.keys(ageObj);
+  const ageValues = Object.values(ageObj);
+  const ctxAge = document.getElementById('ageChart').getContext('2d');
+  ageChart = new Chart(ctxAge, {
+    type: 'bar',
+    data: { labels: ageLabels, datasets: [{ label: 'Patients', data: ageValues }] },
+    options: { responsive: true, plugins: { legend: { display: false } } }
+  });
+}
+
+/* ============================
+   Table rendering & pagination
+   ============================ */
+function renderTablePage(rows) {
+  const tbody = document.getElementById('tableBody');
+  tbody.innerHTML = '';
+  const start = (page-1)*PAGE_SIZE;
+  const pageRows = rows.slice(start, start + PAGE_SIZE);
+
+  for (const r of pageRows) {
+    const tr = document.createElement('tr');
+    tr.className = 'hover:bg-slate-50';
+    tr.innerHTML = `
+      <td class="p-2">${r.date ? parseDateISO(r.date) : ''}</td>
+      <td class="p-2">${r.name_of_patient || ''}</td>
+      <td class="p-2">${r.age_bracket || ''}</td>
+      <td class="p-2">${r.gender || ''}</td>
+      <td class="p-2">${r.package_category || ''}</td>
+      <td class="p-2">${r.package_name || ''}</td>
+      <td class="p-2 text-right font-medium">${fmtMoney(r.amount)}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  const rowsInfo = document.getElementById('rowsInfo');
+  const from = rows.length === 0 ? 0 : Math.min(rows.length, start + 1);
+  const to = Math.min(rows.length, start + pageRows.length);
+  rowsInfo.innerText = `Showing ${from}-${to} of ${rows.length} rows`;
+}
+
+/* ============================
+   Filters
+   ============================ */
+function populateCategoryFilter(rows) {
+  const sel = document.getElementById('categoryFilter');
+  const cats = Array.from(new Set(rows.map(r => r.package_category || '(Uncategorized)'))).sort();
+  sel.innerHTML = '<option value="">All Categories</option>';
+  for (const c of cats) {
+    const o = document.createElement('option'); o.value = c; o.innerText = c; sel.appendChild(o);
+  }
+}
+
+function populateGenderFilter(rows) {
+  const sel = document.getElementById('genderFilter');
+  const genders = Array.from(new Set(rows.map(r => r.gender || 'Unknown'))).sort();
+  sel.innerHTML = '<option value="">All Genders</option>';
+  for (const g of genders) {
+    const o = document.createElement('option'); o.value = g; o.innerText = g; sel.appendChild(o);
+  }
+}
+
+function applyFilters() {
+  const search = document.getElementById('searchInput').value.trim().toLowerCase();
+  const category = document.getElementById('categoryFilter').value;
+  const gender = document.getElementById('genderFilter').value;
+  const from = document.getElementById('fromDate').value;
+  const to = document.getElementById('toDate').value;
+
+  filtered = rawData.filter(r => {
+    if (category && (r.package_category || '') !== category) return false;
+    if (gender && (r.gender || '') !== gender) return false;
+    if (from && r.date && new Date(r.date) < new Date(from)) return false;
+    if (to && r.date && new Date(r.date) > new Date(to)) return false;
+    if (search) {
+      const hay = [r.name_of_patient, r.package_name, r.package_category, r.age_bracket, r.gender]
+        .map(x => (x||'').toString().toLowerCase()).join(' ');
+      return hay.includes(search);
+    }
+    return true;
+  });
+  page = 1;
+  updateUI();
+}
+
+function clearFilters() {
+  document.getElementById('searchInput').value = '';
+  document.getElementById('categoryFilter').value = '';
+  document.getElementById('genderFilter').value = '';
+  document.getElementById('fromDate').value = '';
+  document.getElementById('toDate').value = '';
+  filtered = [...rawData];
+  page = 1;
+  updateUI();
+}
+
+/* ============================
+   Central update
+   ============================ */
+function updateUI() {
+  renderSummaries(filtered);
+  renderCharts(filtered);
+  renderTablePage(filtered);
+}
+
+/* ============================
+   Initial load
+   ============================ */
+async function init() {
+  rawData = await fetchAll();
+  filtered = [...rawData];
+  populateCategoryFilter(rawData);
+  populateGenderFilter(rawData);
+  updateUI();
+}
+
+// event listeners
+document.getElementById('applyFilter').addEventListener('click', applyFilters);
+document.getElementById('clearFilter').addEventListener('click', clearFilters);
+document.getElementById('searchInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') applyFilters(); });
+document.getElementById('prevPage').addEventListener('click', () => { if (page > 1) { page--; renderTablePage(filtered); }});
+document.getElementById('nextPage').addEventListener('click', () => { if (page * PAGE_SIZE < filtered.length) { page++; renderTablePage(filtered); }});
+
+// start
+init();
+</script>
+
+</body>
+</html>
